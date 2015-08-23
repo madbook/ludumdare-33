@@ -42,6 +42,7 @@ export class Entity {
   }
 
   update(game) {
+    console.log(`>> updating ${this}`);
     let prevTile = this.state.tile;
 
     this.state = apply(this.nextState, this.state);
@@ -49,16 +50,21 @@ export class Entity {
 
     if (this.moved) {
       if (prevTile.entity === this) {
+        console.log(`${this} left previous tile`);
         prevTile.entity = null;
       }
       if (this.state.tile.entity !== this) {
-        if (this.state.tile.entity) {
+        console.log(`${this} entering new tile`);
+        if (this.state.tile.entity && !this.state.tile.entity.nextState.moved) {
           this.movedInto(this.state.tile.entity, game);
           this.state.tile.entity.wasMovedIntoBy(this, game);
         } else {
+          console.log(`${this} entered tile without incident`);
           this.state.tile.entity = this;
         }
       }
+    } else {
+      console.log(`${this} did not move`);
     }
   }
 
@@ -82,10 +88,14 @@ export class Entity {
   }
 
   set moved(v) {
+    console.log(`${this} will move`);
     return this.nextState.moved = v;
   }
 
   moveTo(tile) {
+    if (tile.entity) {
+      console.log(`${this} will move towards ${tile.entity}`)
+    }
     this.tile.occupied -= 1;
     this.tile = tile;
     tile.occupied += 1;
@@ -97,11 +107,13 @@ export class Entity {
   }
 
   movedInto(entity, game) {
+    console.log(`${entity} moved into ${this}`);
     // when this moves into a tile occupied by another entity
   }
 
   wasMovedIntoBy(entity, game) {
     // when another entity moves into tile occupied by this
+    console.log(`${entity} was moved into by ${this}`);
   }
 
   handleClick() {
@@ -135,6 +147,7 @@ export class Player extends Entity {
                         .filter((t) => game.canMove(this, t));
 
     if (!openTiles.length) {
+      console.log(`${this} became a monster!`);
       this.type = 'player-monster';
     }
   }
@@ -154,10 +167,8 @@ class Follower extends Entity {
 
   toggleFollowing(target) {
     if (this.following) {
-      console.log(`${this} is no longer following`);
       this.following = null;
     } else {
-      console.log(`${this} is now following ${target}`);
       this.following = target;
     }
   }
@@ -167,10 +178,15 @@ class Follower extends Entity {
   }
 
   set following(v) {
+    if (v) {
+      console.log(`${this} fill follow ${v}`);
+    } else {
+      console.log(`${this} is no longer following`);
+    }
     return this.nextState.following = v;
   }
 
-  tickFollow() {
+  tickFollow(game) {
     let {following} = this;
     
     if (!following) {
@@ -180,16 +196,16 @@ class Follower extends Entity {
     if (following.tile.entity !== following) {
       this.following = null;
       console.log(`${this}'s follow target left the map.`);
-      return;
+      return
     }
+    
 
     let willMove = following.nextState.moved;
     
     if (willMove) {
-      let occupied = following.tile.occupied;
-    
-      if (!occupied) {
-        console.log(`${this} will move towards ${following}`)
+      // let occupied = following.tile.occupied;
+      
+      if (game.canMove(this, following.tile)) {
         this.moveTo(following.tile);
       } else {
         this.following = null;
@@ -198,8 +214,18 @@ class Follower extends Entity {
   }
 
   tick(game) {
-    this.tickFollow();
+    this.tickFollow(game);
     super.tick(game);
+  }
+
+  lateUpdate(game) {
+    let {following} = this;
+    if (!this.willFollow(following)) {
+      console.log(`${this} can no longer follow ${following}`)
+      this.following = null;
+      this.state.following = null;
+      return;
+    }
   }
 }
 
@@ -214,28 +240,6 @@ export class Thinger extends Follower {
     if (game.areTilesAdjacent(game.player.tile, this.tile)) {
       this.toggleFollowing(game.player);
     }
-  }
-
-  tick(game) {
-    if (!this.following) {
-      let {x, y} = this.tile;
-    
-      // look for player or thinger to follow
-      let found = dirKeys.some((key) => {
-        let {x: dx, y: dy} = dirs[key];
-        let tile = game.getTile(x + dx, y + dy);
-
-        if (tile && tile.entity && 
-            this.willFollow(tile.entity)) {
-          this.following = tile.entity;
-          return true;
-        }
-
-        return false;
-      });
-    }
-
-    super.tick(game);
   }
 
   willFollow(entity) {
@@ -254,8 +258,8 @@ export class Thinger extends Follower {
           tile.entity instanceof Barrel &&
           !tile.entity.contains) {
         console.log(`${this} moving to ${tile.entity}`)
+        this.following = null;
         this.state.following = null;
-        this.nextState.following = null;
         this.moveTo(tile);
         tile.entity.contains = this;
         return true;
@@ -274,7 +278,29 @@ export class Thinger extends Follower {
       if (adjacentMonsters.length && openTiles.length) {
         console.log(`${this} running from ${adjacentMonsters[0]} to ${openTiles[0]}`);
         this.moveTo(openTiles[0]);
+        // really wish I hadn't done this
+        this.following = null;
+        this.state.following = null;
       }
+    }
+
+    if (!this.following && !this.nextState.moved) {
+      let {x, y} = this.tile;
+
+      // look for player or thinger to follow
+      let found = dirKeys.some((key) => {
+        let {x: dx, y: dy} = dirs[key];
+        let tile = game.getTile(x + dx, y + dy);
+
+        if (tile && tile.entity && 
+            this.willFollow(tile.entity)) {
+          this.following = tile.entity;
+          this.state.following = tile.entity;
+          return true;
+        }
+
+        return false;
+      });
     }
 
     super.lateUpdate(game);
@@ -294,7 +320,29 @@ export class Monster extends Follower {
   }
 
   tick(game) {
-    if (!this.following) {
+    if (!this.following && !this.nextState.moved) {
+      // move in a random dir
+      let randomDir = randomElement(dirKeys);
+      let {x: rx, y: ry} = dirs[randomDir];
+      let {x, y} = this.tile;
+      let tile = game.getTile(x + rx, y + ry);
+
+      if (!tile || !game.canMove(this, tile)) {
+        return;
+      }
+
+      this.moveTo(tile);
+    }
+
+    super.tick(game);
+  }
+
+  willFollow(entity) {
+    return entity && (entity instanceof Player || entity instanceof Thinger);
+  }
+
+  lateUpdate(game) {
+    if (!this.following && !this.nextState.moved) {
       let {x, y} = this.tile;
 
       // look for player or thinger to follow
@@ -305,32 +353,15 @@ export class Monster extends Follower {
         if (tile && tile.entity && 
             this.willFollow(tile.entity)) {
           this.following = tile.entity;
+          this.state.following = tile.entity;
           return true;
         }
 
         return false;
       });
-
-      // otherwise move in a random direction
-      if (!found) {
-        let randomDir = randomElement(dirKeys);
-        let {x: rx, y: ry} = dirs[randomDir];
-        let {x, y} = this.tile;
-        let tile = game.getTile(x + rx, y + ry);
-
-        if (!tile || !game.canMove(this, tile)) {
-          return;
-        }
-
-        this.moveTo(tile);
-      }
     }
 
-    super.tick(game);
-  }
-
-  willFollow(entity) {
-    return entity && (entity instanceof Player || entity instanceof Thinger);
+    super.lateUpdate(game);
   }
 }
 
@@ -352,9 +383,12 @@ export class Barrel extends Entity {
   wasMovedIntoBy(entity, game) {
     if (entity instanceof Thinger) {
       console.log(`${entity} getting inside of ${this}`)
+      this.tile.occupied -= 1;
       entity.tile = this.tile
       this.contains = entity;
       this.type = 'barrel-full';
+      // FUCK
+      // ME
       game.entityList.splice(game.entityList.indexOf(entity), 1);
     }
   }

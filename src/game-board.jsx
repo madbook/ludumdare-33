@@ -5,7 +5,7 @@ import classSet from './class-set';
 class Tile extends React.Component {
   render() {
     let {handleClick} = this;
-    let {entity, highlightForMove, renderStep, variant} = this.props;
+    let {entity, highlightForMove, renderStep, variant, flipBackground} = this.props;
     let type = entity ? entity.type : 'empty';
     let {x, y} = this.props;
     let slideClass = '';
@@ -27,17 +27,21 @@ class Tile extends React.Component {
       'tile': true,
       [type]: true,
       [`variant-${variant}`]: true,
+      [`flip-background`]: flipBackground,
       'move-highlight': highlightForMove,
       [`slide slide-${slideClass}`]: renderStep === 'step1' && slideClass,
       [`move-highlight-${highlightForMove}`]: highlightForMove,
       'is-following': entity && !!entity.following,
     });
 
+        // {`tile: ${x}, ${y}`}
     return <div className={className} onClick={handleClick}>
       <canvas width="1" height="1" className="aspect-ratio-canvas" />
-      <div className="tile-background" />
+      <div className="tile-background">
+      </div>
       <div className="tile-display-container">
-        <div className="tile-display" />
+        <div className="tile-display">
+        </div>
       </div>
     </div>
   }
